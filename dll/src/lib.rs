@@ -60,9 +60,9 @@ pub fn popup(env: JNIEnv, name: &str, desc: &str) -> Result<(), jni::errors::Err
 
     let accessor = env
         .get_static_field(
-            "com/grappenmaker/solarpatcher/util/GeneratedAccessor",
+            "com/grappenmaker/solarpatcher/util/generation/Accessors$Utility",
             "INSTANCE",
-            "Lcom/grappenmaker/solarpatcher/util/GeneratedAccessor;",
+            "Lcom/grappenmaker/solarpatcher/util/generation/Accessors$Utility;",
         )?
         .l()?;
 
