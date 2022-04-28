@@ -1,34 +1,30 @@
 #![allow(non_snake_case)]
 #![feature(io_error_more)]
 
+use std::ops::{Deref, DerefMut};
 use std::sync::Mutex;
 
 use jni::objects::{JObject, JValue};
 use jni::sys::jint;
 use jni::JNIEnv;
 use mumble_link::{ErrorCode, MumbleLink, Position};
-use once_cell::sync::OnceCell;
+use mut_static::MutStatic;
 
 type JniResult<T = ()> = std::result::Result<T, jni::errors::Error>;
 
 const MUMBLE_VEC: &str = "Lcom/moonsworth/client/mumble/MumbleVec;";
-const NAME: &str = "Solar Tweaks";
-const DESC: &str = "Tweaked Minecraft";
+const NAME: &str = "Minecraft";
+const DESC: &str = "Minecraft (1.8.9)";
 
-static INSTANCE: OnceCell<Mutex<MumbleLink>> = OnceCell::new();
+type Link = Mutex<Result<MumbleLink, ErrorCode>>;
 
-fn get_link() -> Result<&'static Mutex<MumbleLink>, ErrorCode> {
-    _create_link(NAME, DESC)
+lazy_static::lazy_static! {
+    static ref INSTANCE: MutStatic<Link> = MutStatic::from(Mutex::new(MumbleLink::new(NAME, DESC)));
 }
 
-fn create_link(name: Option<&str>, desc: Option<&str>) -> Result<(), ErrorCode> {
-    _create_link(name.unwrap_or(NAME), desc.unwrap_or(DESC)).map(|_| ())
-}
-
-fn _create_link(name: &str, desc: &str) -> Result<&'static Mutex<MumbleLink>, ErrorCode> {
-    // If there is already a link, don't create one or throw an error
-    // Only error when the link failed to initialize.
-    INSTANCE.get_or_try_init(|| Ok(Mutex::new(MumbleLink::new(name, desc)?)))
+fn reset_link(name: &str, desc: &str) -> Link {
+    let link = Mutex::new(MumbleLink::new(name, desc));
+    std::mem::replace(INSTANCE.write().unwrap().deref_mut(), link)
 }
 
 #[no_mangle]
@@ -36,11 +32,12 @@ pub extern "system" fn Java_com_moonsworth_client_mumble_MumbleLink_init(
     env: JNIEnv,
     _input: JObject,
 ) -> jint {
+    eprintln!("CALLED Java_com_moonsworth_client_mumble_MumbleLink_init");
     // TODO: Take name from user
-    match create_link(None, None) {
+    match reset_link(NAME, DESC).lock().unwrap().deref() {
         Ok(_) => 0,
         Err(e) => {
-            let code = e as i32;
+            let code = (*e) as i32;
             eprintln!("MUMBLE ERROR: {}", e);
 
             let _ = popup(
@@ -49,7 +46,7 @@ pub extern "system" fn Java_com_moonsworth_client_mumble_MumbleLink_init(
                 "Mumble link failed to connect. Is Mumble open?",
             );
 
-            return code;
+            -code
         }
     }
 }
@@ -82,15 +79,27 @@ pub extern "system" fn Java_com_moonsworth_client_mumble_MumbleLink_update(
     _this: JObject,
     input: JObject,
 ) {
-    let link = get_link();
-
-    if let Err(i) = link {
-        let code = i as i32;
+    eprintln!("CALLED Java_com_moonsworth_client_mumble_MumbleLink_update");
+    // This is error handling hell.
+    let link = INSTANCE.read();
+    if link.is_err() {
+        eprintln!("Mumble Error: Link wasn't initialized (code -1)");
+        return;
+    }
+    let link = link.unwrap();
+    let link = link.lock();
+    if link.is_err() {
+        eprintln!("Mumble Error: Unable to lock link (code -1)");
+        return;
+    }
+    let mut link = link.unwrap();
+    if let Err(i) = link.deref() {
+        let code = (*i) as i32;
         eprintln!("Mumble Error: {} (code {})", i, code);
         return;
     }
 
-    let mut link = link.unwrap().lock().expect("Could not lock link");
+    let link = link.as_mut().unwrap();
 
     let avatar_front = env.get_field(input, "avatarFront", MUMBLE_VEC).unwrap();
     let avatar_position = env.get_field(input, "avatarPosition", MUMBLE_VEC).unwrap();
@@ -117,9 +126,9 @@ fn mumble_vec_to_array(env: &JNIEnv, input: JValue) -> JniResult<[f32; 3]> {
 }
 
 fn into_pos(env: &JNIEnv, front: JValue, top: JValue, position: JValue) -> JniResult<Position> {
-    let front = mumble_vec_to_array(&env, front)?;
-    let top = mumble_vec_to_array(&env, top)?;
-    let position = mumble_vec_to_array(&env, position)?;
+    let front = mumble_vec_to_array(env, front)?;
+    let top = mumble_vec_to_array(env, top)?;
+    let position = mumble_vec_to_array(env, position)?;
 
     Ok(Position {
         front,

@@ -23,6 +23,7 @@ macro_rules! wide {
 /// See: https://www.mumble.info/documentation/developer/positional-audio/link-plugin/
 #[repr(i32)]
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum ErrorCode {
     Success = 0,
     OpenFileMappingW = 1,
@@ -30,6 +31,7 @@ pub enum ErrorCode {
     ShmOpen = 3,
     MMap = 4,
     NoMem = 5,
+    Unknown = 6,
 }
 
 impl Display for ErrorCode {
@@ -38,6 +40,8 @@ impl Display for ErrorCode {
             "no error"
         } else if let Self::NoMem = self {
             "shared memory was not initialized"
+        } else if let Self::Unknown = self {
+            "unknown Error"
         } else if cfg!(windows) {
             match self {
                 ErrorCode::OpenFileMappingW => "OpenFileMappingW failed to return a handle",
@@ -209,8 +213,8 @@ pub struct MumbleLink {
 }
 
 impl std::fmt::Debug for MumbleLink {
-    fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.local.fmt(&mut f)
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.local.fmt(f)
     }
 }
 
